@@ -43,12 +43,10 @@ public class SerialDisposableTests extends RxJavaTest {
     @Test
     public void getDisposableShouldReturnset() {
         final Disposable underlying = mock(Disposable.class);
-        serialDisposable.set(underlying);
-        assertSame(underlying, serialDisposable.get());
+        assertTrue(serialDisposable.checkDisposableSet(underlying));
 
         final Disposable another = mock(Disposable.class);
-        serialDisposable.set(another);
-        assertSame(another, serialDisposable.get());
+        assertTrue(serialDisposable.checkDisposableSet(another));
     }
 
     @Test

@@ -41,6 +41,11 @@ public final class SerialDisposable implements Disposable {
         this.resource = new AtomicReference<>(initialDisposable);
     }
 
+    public boolean checkDisposableSet(Disposable newDisposable) {
+        this.set(newDisposable);
+        return this.get() == newDisposable;
+    }
+
     /**
      * Atomically: set the next disposable on this container and dispose the previous
      * one (if any) or dispose next if the container has been disposed.
