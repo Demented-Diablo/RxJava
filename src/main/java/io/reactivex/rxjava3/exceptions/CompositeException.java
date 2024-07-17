@@ -105,70 +105,119 @@ public final class CompositeException extends RuntimeException {
         if (cause == null) {
             String separator = System.getProperty("line.separator");
             if (exceptions.size() > 1) {
-                Map<Throwable, Boolean> seenCauses = new IdentityHashMap<>();
-
-                StringBuilder aggregateMessage = new StringBuilder();
-                aggregateMessage.append("Multiple exceptions (").append(exceptions.size()).append(")").append(separator);
-
-                for (Throwable inner : exceptions) {
-                    int depth = 0;
-                    while (inner != null) {
-                        for (int i = 0; i < depth; i++) {
-                            aggregateMessage.append("  ");
-                        }
-                        aggregateMessage.append("|-- ");
-                        aggregateMessage.append(inner.getClass().getCanonicalName()).append(": ");
-                        String innerMessage = inner.getMessage();
-                        if (innerMessage != null && innerMessage.contains(separator)) {
-                            aggregateMessage.append(separator);
-                            for (String line : innerMessage.split(separator)) {
-                                for (int i = 0; i < depth + 2; i++) {
-                                    aggregateMessage.append("  ");
-                                }
-                                aggregateMessage.append(line).append(separator);
-                            }
-                        } else {
-                            aggregateMessage.append(innerMessage);
-                            aggregateMessage.append(separator);
-                        }
-
-                        for (int i = 0; i < depth + 2; i++) {
-                            aggregateMessage.append("  ");
-                        }
-                        StackTraceElement[] st = inner.getStackTrace();
-                        if (st.length > 0) {
-                            aggregateMessage.append("at ").append(st[0]).append(separator);
-                        }
-
-                        if (!seenCauses.containsKey(inner)) {
-                            seenCauses.put(inner, true);
-
-                            inner = inner.getCause();
-                            depth++;
-                        } else {
-                            inner = inner.getCause();
-                            if (inner != null) {
-                                for (int i = 0; i < depth + 2; i++) {
-                                    aggregateMessage.append("  ");
-                                }
-                                aggregateMessage.append("|-- ");
-                                aggregateMessage.append("(cause not expanded again) ");
-                                aggregateMessage.append(inner.getClass().getCanonicalName()).append(": ");
-                                aggregateMessage.append(inner.getMessage());
-                                aggregateMessage.append(separator);
-                            }
-                            break;
-                        }
-                    }
-                }
-
-                cause = new ExceptionOverview(aggregateMessage.toString().trim());
+                cause = createAggregateCause(separator);
             } else {
                 cause = exceptions.get(0);
             }
         }
         return cause;
     }
+
+    /**
+     * Creates a new ExceptionOverview that contains the aggregate message
+     * for all exceptions in the CompositeException.
+     *
+     * @param separator the line separator string
+     * @return the Throwable representing the aggregate cause
+     */
+    private Throwable createAggregateCause(String separator) {
+        Map<Throwable, Boolean> seenCauses = new IdentityHashMap<>();
+        StringBuilder aggregateMessage = new StringBuilder();
+        aggregateMessage.append("Multiple exceptions (").append(exceptions.size()).append(")").append(separator);
+
+        for (Throwable inner : exceptions) {
+            processInnerException(inner, seenCauses, aggregateMessage, separator, 0);
+        }
+        return new ExceptionOverview(aggregateMessage.toString().trim());
+    }
+
+    /**
+     * Processes each inner exception, appending its details to the aggregate message.
+     *
+     * @param inner the current inner Throwable
+     * @param seenCauses the map tracking seen causes to prevent cycles
+     * @param aggregateMessage the StringBuilder for the aggregate message
+     * @param separator the line separator string
+     * @param depth the current depth in the exception hierarchy
+     */
+    private void processInnerException(Throwable inner, Map<Throwable, Boolean> seenCauses, StringBuilder aggregateMessage, String separator, int depth) {
+        while (inner != null) {
+            appendExceptionDetails(inner, aggregateMessage, separator, depth);
+            if (!seenCauses.containsKey(inner)) {
+                seenCauses.put(inner, true);
+                inner = inner.getCause();
+                depth++;
+            } else {
+                handleRepeatedCause(inner, aggregateMessage, separator, depth);
+                break;
+            }
+        }
+    }
+
+    /**
+     * Appends the details of a single exception to the aggregate message.
+     *
+     * @param inner the current inner Throwable
+     * @param aggregateMessage the StringBuilder for the aggregate message
+     * @param separator the line separator string
+     * @param depth the current depth in the exception hierarchy
+     */
+    private void appendExceptionDetails(Throwable inner, StringBuilder aggregateMessage, String separator, int depth) {
+        for (int i = 0; i < depth; i++) {
+            aggregateMessage.append("  ");
+        }
+        aggregateMessage.append("|-- ").append(inner.getClass().getCanonicalName()).append(": ");
+        String innerMessage = inner.getMessage();
+        if (innerMessage != null && innerMessage.contains(separator)) {
+            aggregateMessage.append(separator);
+            for (String line : innerMessage.split(separator)) {
+                for (int i = 0; i < depth + 2; i++) {
+                    aggregateMessage.append("  ");
+                }
+                aggregateMessage.append(line).append(separator);
+            }
+        } else {
+            aggregateMessage.append(innerMessage).append(separator);
+        }
+        appendStackTraceElement(inner, aggregateMessage, separator, depth);
+    }
+
+    /**
+     * Appends the first stack trace element of the exception to the aggregate message.
+     *
+     * @param inner the current inner Throwable
+     * @param aggregateMessage the StringBuilder for the aggregate message
+     * @param separator the line separator string
+     * @param depth the current depth in the exception hierarchy
+     */
+    private void appendStackTraceElement(Throwable inner, StringBuilder aggregateMessage, String separator, int depth) {
+        for (int i = 0; i < depth + 2; i++) {
+            aggregateMessage.append("  ");
+        }
+        StackTraceElement[] st = inner.getStackTrace();
+        if (st.length > 0) {
+            aggregateMessage.append("at ").append(st[0]).append(separator);
+        }
+    }
+
+    /**
+     * Handles cases where an exception cause has already been seen to avoid cycles.
+     *
+     * @param inner the current inner Throwable
+     * @param aggregateMessage the StringBuilder for the aggregate message
+     * @param separator the line separator string
+     * @param depth the current depth in the exception hierarchy
+     */
+    private void handleRepeatedCause(Throwable inner, StringBuilder aggregateMessage, String separator, int depth) {
+        inner = inner.getCause();
+        if (inner != null) {
+            for (int i = 0; i < depth + 2; i++) {
+                aggregateMessage.append("  ");
+            }
+            aggregateMessage.append("|-- ").append("(cause not expanded again) ").append(inner.getClass().getCanonicalName()).append(": ").append(inner.getMessage()).append(separator);
+        }
+    }
+
 
     /**
      * All of the following {@code printStackTrace} functionality is derived from JDK {@link Throwable}
