@@ -127,7 +127,7 @@ public abstract class Scheduler {
      *     supports {@code seconds} and {@code milliseconds}.
      * </ul>
      */
-    static final long CLOCK_DRIFT_TOLERANCE_NANOSECONDS =
+    static final long DRIFT_TOLERANCE_NS =
             computeClockDrift(
                     Long.getLong("rx3.scheduler.drift-tolerance", 15),
                     System.getProperty("rx3.scheduler.drift-tolerance-unit", "minutes")
@@ -160,7 +160,7 @@ public abstract class Scheduler {
      * @since 2.0
      */
     public static long clockDriftTolerance() {
-        return CLOCK_DRIFT_TOLERANCE_NANOSECONDS;
+        return DRIFT_TOLERANCE_NS;
     }
 
     /**
@@ -548,8 +548,8 @@ public abstract class Scheduler {
 
                     long nowNanoseconds = now(TimeUnit.NANOSECONDS);
                     // If the clock moved in a direction quite a bit, rebase the repetition period
-                    if (nowNanoseconds + CLOCK_DRIFT_TOLERANCE_NANOSECONDS < lastNowNanoseconds
-                            || nowNanoseconds >= lastNowNanoseconds + periodInNanoseconds + CLOCK_DRIFT_TOLERANCE_NANOSECONDS) {
+                    if (nowNanoseconds + DRIFT_TOLERANCE_NS < lastNowNanoseconds
+                            || nowNanoseconds >= lastNowNanoseconds + periodInNanoseconds + DRIFT_TOLERANCE_NS) {
                         nextTick = nowNanoseconds + periodInNanoseconds;
                         /*
                          * Shift the start point back by the drift as if the whole thing
