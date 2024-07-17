@@ -160,70 +160,75 @@ public class FlowableConcatTest {
         final CountDownLatch parentHasStarted = new CountDownLatch(1);
         final CountDownLatch parentHasFinished = new CountDownLatch(1);
 
-        Flowable<Flowable<String>> observableOfObservables = Flowable.unsafeCreate(new Publisher<Flowable<String>>() {
+        Flowable<Flowable<String>> observableOfObservables = createObservableOfObservables_NestedAsyncConcat(o1, o2, o3, allowThird, parent, parentHasStarted, parentHasFinished);
 
+        Flowable.concat(observableOfObservables).subscribe(subscriber);
+
+        parentHasStarted.await();
+        waitForObservablesToComplete_NestedAsyncConcat(o1, o2);
+
+        verifySubscriberBeforeThirdEmission_NestedAsyncConcat(subscriber, allowThird);
+
+        waitForObservableToComplete_NestedAsyncConcat(o3);
+
+        waitForParentToComplete_NestedAsyncConcat(parentHasFinished);
+
+        verifySubscriberAfterThirdEmission_NestedAsyncConcat(subscriber);
+    }
+
+    private Flowable<Flowable<String>> createObservableOfObservables_NestedAsyncConcat(final TestObservable<String> o1, final TestObservable<String> o2, final TestObservable<String> o3, final CountDownLatch allowThird, final AtomicReference<Thread> parent, final CountDownLatch parentHasStarted, final CountDownLatch parentHasFinished) {
+        return Flowable.unsafeCreate(new Publisher<Flowable<String>>() {
             @Override
             public void subscribe(final Subscriber<? super Flowable<String>> subscriber) {
                 final Disposable d = Disposable.empty();
                 subscriber.onSubscribe(new Subscription() {
                     @Override
-                    public void request(long n) {
-
-                    }
+                    public void request(long n) {}
 
                     @Override
                     public void cancel() {
                         d.dispose();
                     }
                 });
-                parent.set(new Thread(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        try {
-                            // emit first
-                            if (!d.isDisposed()) {
-                                System.out.println("Emit o1");
-                                subscriber.onNext(Flowable.unsafeCreate(o1));
-                            }
-                            // emit second
-                            if (!d.isDisposed()) {
-                                System.out.println("Emit o2");
-                                subscriber.onNext(Flowable.unsafeCreate(o2));
-                            }
-
-                            // wait until sometime later and emit third
-                            try {
-                                allowThird.await();
-                            } catch (InterruptedException e) {
-                                subscriber.onError(e);
-                            }
-                            if (!d.isDisposed()) {
-                                System.out.println("Emit o3");
-                                subscriber.onNext(Flowable.unsafeCreate(o3));
-                            }
-
-                        } catch (Throwable e) {
-                            subscriber.onError(e);
-                        } finally {
-                            System.out.println("Done parent Flowable");
-                            subscriber.onComplete();
-                            parentHasFinished.countDown();
-                        }
-                    }
-                }));
+                parent.set(new Thread(createParentRunnable_NestedAsyncConcat(subscriber, o1, o2, o3, allowThird, d, parentHasFinished)));
                 parent.get().start();
                 parentHasStarted.countDown();
             }
         });
+    }
 
-        Flowable.concat(observableOfObservables).subscribe(subscriber);
+    private Runnable createParentRunnable_NestedAsyncConcat(final Subscriber<? super Flowable<String>> subscriber, final TestObservable<String> o1, final TestObservable<String> o2, final TestObservable<String> o3, final CountDownLatch allowThird, final Disposable d, final CountDownLatch parentHasFinished) {
+        return () -> {
+            try {
+                emitObservables_NestedAsyncConcat(subscriber, o1, o2, o3, allowThird, d);
+            } catch (Throwable e) {
+                subscriber.onError(e);
+            } finally {
+                System.out.println("Done parent Flowable");
+                subscriber.onComplete();
+                parentHasFinished.countDown();
+            }
+        };
+    }
 
-        // wait for parent to start
-        parentHasStarted.await();
+    private void emitObservables_NestedAsyncConcat(final Subscriber<? super Flowable<String>> subscriber, final TestObservable<String> o1, final TestObservable<String> o2, final TestObservable<String> o3, final CountDownLatch allowThird, final Disposable d) throws InterruptedException {
+        if (!d.isDisposed()) {
+            System.out.println("Emit o1");
+            subscriber.onNext(Flowable.unsafeCreate(o1));
+        }
+        if (!d.isDisposed()) {
+            System.out.println("Emit o2");
+            subscriber.onNext(Flowable.unsafeCreate(o2));
+        }
+        allowThird.await();
+        if (!d.isDisposed()) {
+            System.out.println("Emit o3");
+            subscriber.onNext(Flowable.unsafeCreate(o3));
+        }
+    }
 
+    private void waitForObservablesToComplete_NestedAsyncConcat(final TestObservable<String> o1, final TestObservable<String> o2) {
         try {
-            // wait for first 2 async observables to complete
             System.out.println("Thread1 is starting ... waiting for it to complete ...");
             o1.waitForThreadDone();
             System.out.println("Thread2 is starting ... waiting for it to complete ...");
@@ -231,7 +236,9 @@ public class FlowableConcatTest {
         } catch (Throwable e) {
             throw new RuntimeException("failed waiting on threads", e);
         }
+    }
 
+    private void verifySubscriberBeforeThirdEmission_NestedAsyncConcat(final Subscriber<String> subscriber, final CountDownLatch allowThird) {
         InOrder inOrder = inOrder(subscriber);
         inOrder.verify(subscriber, times(1)).onNext("one");
         inOrder.verify(subscriber, times(1)).onNext("two");
@@ -239,33 +246,35 @@ public class FlowableConcatTest {
         inOrder.verify(subscriber, times(1)).onNext("four");
         inOrder.verify(subscriber, times(1)).onNext("five");
         inOrder.verify(subscriber, times(1)).onNext("six");
-        // we shouldn't have the following 3 yet
         inOrder.verify(subscriber, never()).onNext("seven");
         inOrder.verify(subscriber, never()).onNext("eight");
         inOrder.verify(subscriber, never()).onNext("nine");
-        // we should not be completed yet
         verify(subscriber, never()).onComplete();
         verify(subscriber, never()).onError(any(Throwable.class));
 
-        // now allow the third
         allowThird.countDown();
+    }
 
+    private void waitForObservableToComplete_NestedAsyncConcat(final TestObservable<String> o3) {
         try {
-            // wait for 3rd to complete
             o3.waitForThreadDone();
         } catch (Throwable e) {
             throw new RuntimeException("failed waiting on threads", e);
         }
+    }
 
+    private void waitForParentToComplete_NestedAsyncConcat(final CountDownLatch parentHasFinished) {
         try {
-            // wait for the parent to complete
             if (!parentHasFinished.await(5, TimeUnit.SECONDS)) {
                 fail("Parent didn't finish within the time limit");
             }
         } catch (Throwable e) {
             throw new RuntimeException("failed waiting on threads", e);
         }
+    }
 
+    private void verifySubscriberAfterThirdEmission_NestedAsyncConcat(final Subscriber<String> subscriber) {
+        InOrder inOrder = inOrder(subscriber);
         inOrder.verify(subscriber, times(1)).onNext("seven");
         inOrder.verify(subscriber, times(1)).onNext("eight");
         inOrder.verify(subscriber, times(1)).onNext("nine");
@@ -273,6 +282,7 @@ public class FlowableConcatTest {
         verify(subscriber, never()).onError(any(Throwable.class));
         inOrder.verify(subscriber, times(1)).onComplete();
     }
+
 
     @Test
     public void blockedObservableOfObservables() {
